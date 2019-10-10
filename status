@@ -1,0 +1,6 @@
+also need stringstream
+
+Various updates
+Fixed vomit
+Added shit ton of comments 
+Improved code (checked for getInteractor nullptr cases for all but Citizens and Zombies)
