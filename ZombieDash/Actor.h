@@ -124,7 +124,7 @@ public:
     virtual void doSomething();
     virtual bool react();
     virtual bool isFleeting() const;
-    void explode();
+    virtual void kill();
     virtual ~Landmine();
 private:
 };
@@ -261,7 +261,8 @@ public:
     void setHealth(bool stat);
     bool isInfected() const;
     
-    void sufferFromDisease();
+    bool sufferFromDisease();
+    int getInfectTime() const;
 
     
     virtual bool isInfectable() const;
@@ -282,6 +283,7 @@ public:
     
     virtual ~Citizen();
 private:
+    Direction avoidZombie(double distance);
 };
 
 //DONE
@@ -294,7 +296,7 @@ public:
     virtual void doSomething();
     virtual void kill();
     void setKey(int num);
-        
+    
     virtual ~Penelope();
 private:
     int key;

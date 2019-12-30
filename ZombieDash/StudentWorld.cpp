@@ -2,6 +2,8 @@
 #include "GameConstants.h"
 #include "Level.h"
 #include <string>
+#include <sstream>
+#include <iomanip>
 
 using namespace std;
 
@@ -26,10 +28,14 @@ int StudentWorld::init()//need multiple levels
     status = GWSTATUS_CONTINUE_GAME;
     
     Level lev(assetPath());
-    string levelFile = "level04.txt";
+    //string levelFile = "level04.txt";
+    ostringstream nextLevel;
+    nextLevel.fill('0');
+    nextLevel << "level" << setw(2) << getLevel() << ".txt";
+    string levelFile  = nextLevel.str();
     Level::LoadResult result = lev.loadLevel(levelFile);
     if (result == Level::load_fail_file_not_found)
-        return GWSTATUS_LEVEL_ERROR;
+        return GWSTATUS_PLAYER_WON;
     else if (result == Level::load_fail_bad_format)
         return GWSTATUS_LEVEL_ERROR;
     else if (result == Level::load_success)
@@ -83,9 +89,26 @@ int StudentWorld::init()//need multiple levels
 
 int StudentWorld::move()
 {
-    // This code is here merely to allow the game to build, run, and terminate after you hit enter.
-    // Notice that the return value GWSTATUS_PLAYER_DIED will cause our framework to end the current level.
-    decLives();
+    //Score: 004500  Level: 27  Lives: 3  Vaccines: 2  Flames: 16  Mines: 1  Infected: 0
+    ostringstream oss;
+    oss.setf(ios::fixed);
+    oss.precision(2);
+    oss.fill('0');
+    
+    if(getScore() >= 0)
+        oss << "Score: " << setw(6) << getScore();
+    else
+        oss << "Score: -" << setw(5) << abs(getScore());
+    oss.fill(' ');
+    oss << "  Level: " << setw(2) << getLevel();
+    oss << "  Lives: " << setw(1) << getLives();
+    oss << "  Vaccines: " << setw(2) << numVaccines;
+    oss << "  Flames: " << setw(2) << numGas;
+    oss << "  Mines: " << setw(2) << numLandmines;
+    oss << "  Infected: " << setw(1) << penelope -> getInfectTime();
+    string convert = oss.str();
+    setGameStatText(convert);
+    
     int val;
     getKey(val);
     penelope->setKey(val);
@@ -94,6 +117,7 @@ int StudentWorld::move()
     while (it != m_actors.end())
     {
         (*it)->doSomething();
+        (*it)->setInteractor(nullptr);
         it++;
     }
     
@@ -111,18 +135,23 @@ int StudentWorld::move()
         else
             it++;
     }
+    if (status == GWSTATUS_PLAYER_DIED)
+        decLives();
     return status;
 }
 
 void StudentWorld::cleanUp()
 {
     if (penelope != nullptr)
-        delete penelope;
-    list<Actor*> :: iterator it = m_actors.begin();
-    while (it != m_actors.end())
     {
-        delete *it;
-        it = m_actors.erase(it);
+        delete penelope;
+        list<Actor*> :: iterator it = m_actors.begin();
+        while (it != m_actors.end())
+        {
+            delete *it;
+            it = m_actors.erase(it);
+        }
+        penelope = nullptr;
     }
 }
 
@@ -248,6 +277,8 @@ bool StudentWorld::checkAllOverlaps(Actor* a)
 //sets mover's interactor pointer to penelope
 int StudentWorld::setClosest(Moveable* mover)
 {
+    mover->setClosest(nullptr);
+    mover->setInteractor(nullptr);
     list<Actor*> :: iterator it;
     double bestD = INT_MAX;
     
@@ -287,6 +318,8 @@ void StudentWorld::vomThings(Vomit* vom)
             (*it)->react();
         it++;
     }
+    if (penelope->getInteractor() == vom)
+        penelope->react();
 }
 
 
@@ -359,6 +392,5 @@ bool StudentWorld::useLandmine()
 
 StudentWorld::~StudentWorld()
 {
-    if (penelope != nullptr)
-        cleanUp();
+    cleanUp();
 }

@@ -144,9 +144,9 @@ Damaging::~Damaging() {}
 //FLAME
 void Flame::doSomething()
 {
+    addTicks();
     if (isAlive())
     {
-        addTicks();
         if (getTicks() > 2)
             kill();
         else
@@ -204,6 +204,12 @@ bool Pit::react()
         getInteractor()->kill();
         return true;
     }
+    else if (getInteractor()->isPickable()) //also kills goodies inside Pit (in case DumbZombie spawns GVaccine)
+    {
+        getInteractor()->kill();
+        return true;
+    }
+    
     return false;
 }
 
@@ -218,12 +224,11 @@ Pit::~Pit(){}
 void Landmine::doSomething()
 {
     addTicks();
-    if (getTicks() >= 30)
+    if (getTicks() == 30){} //do nothing on the tick it becomes active
+    else if (getTicks() > 30)
     {
         if (isAlive())
             getWorld()->checkAllOverlaps(this);
-        else //dead from flame trigger
-            explode();
     }
 }
 
@@ -234,7 +239,6 @@ bool Landmine::react()
     if (getInteractor()->canTriggerLandmine())
     {
         kill();
-        explode();
         return true;
     }
     return false;
@@ -242,8 +246,10 @@ bool Landmine::react()
 
 //creates up to 9 Flames in a grid surrounding the position of the Landmine
 //plays sound, adds Pit
-void Landmine::explode()
+void Landmine::kill()
 {
+    Actor::kill();
+    
     //play sound
     getWorld()->playSound(SOUND_LANDMINE_EXPLODE);
     
@@ -270,10 +276,13 @@ Landmine::~Landmine(){}
 void Vomit::doSomething()
 {
     addTicks();
-    if (getTicks() >= 2)
-        kill();
-    else
-        getWorld()->checkAllOverlaps(this);
+    if (isAlive())
+    {
+        if (getTicks() > 2)
+            kill();
+        else
+            getWorld()->checkAllOverlaps(this);
+    }
 }
 
 //set Citizen/Penelope's interactor to Vomit
@@ -435,7 +444,7 @@ bool Moveable::followInteractor(int steps)
     else
         return turnTowards(steps);
     return false;
-}//!!!!!!!!!!!!!!!!!!!!!!!!EVEN IF FOLLOWINTERACTOR RETURNS FALSE, MOVEABLE'S DIRECTION IS CHANGED!!!!!!!!!!!!!!!!!
+}
 
 //if not on same row/col as interactor, turn towards randomly btwn 2 dirs
 //if blocked in chosen dir, choose other dir
@@ -462,7 +471,7 @@ bool Moveable::turnTowards(int steps)
             return move(col,steps);
     }
     return false;
-}//!!!!!!!!!!!!!!!!!!!!!!!!EVEN IF TURNTOWARDS RETURNS FALSE, MOVEABLE'S DIRECTION IS CHANGED!!!!!!!!!!!!!!!!!
+}
 
 bool Moveable::canTriggerLandmine() const
 {
@@ -575,6 +584,7 @@ void DumbZombie::doSomething()
     {
         if (getTicks() % 2 != 0)
         {
+            setInteractor(nullptr);
             if (!react())
             {
                 if (getPlan() <= 0)
@@ -600,10 +610,40 @@ void DumbZombie::kill()
     //decrease 1000 points bc not SmartZombie (+2000-1000 --> 1000 net)
     getWorld()->increaseScore(-1000);
     
-    int rand = randInt(1,10);
-    cerr << rand << endl;
-    if (rand == 10)
-        getWorld()->addActor(new GVaccine(IID_VACCINE_GOODIE,getX(),getY(), 0, 1, 1, getWorld()));
+    if (randInt(1,10) <= 10)
+    {
+        //attempt to eject vaccine in a random direction
+        int dir = randInt(0,3)*90;
+        GVaccine* temp = nullptr;
+        switch (dir)
+        {
+            case right:
+                temp = new GVaccine(IID_VACCINE_GOODIE,getX()+SPRITE_WIDTH,getY(), left, 1, 1, getWorld());
+                break;
+            case left:
+                temp = new GVaccine(IID_VACCINE_GOODIE,getX()-SPRITE_WIDTH,getY(), left, 1, 1, getWorld());
+                break;
+            case up:
+                temp = new GVaccine(IID_VACCINE_GOODIE,getX(),getY()+SPRITE_HEIGHT, left, 1, 1, getWorld());
+                break;
+            case down:
+                temp = new GVaccine(IID_VACCINE_GOODIE,getX(),getY()-SPRITE_HEIGHT, left, 1, 1, getWorld());
+                break;
+        }
+        getWorld()->addActor(temp);
+        
+        if (!getWorld()->checkAllOverlaps(temp))
+        {
+            //correctly reset direction to right (to allow it to get picked up later) and then allow to eject
+            temp->setDirection(right);
+        }
+        //if returns true, may or may not overlap with Penelope --> calls react on GVaccine to check
+        //even if interactor is Penelope, doesn't get picked up because direction is wrong (left)
+        else
+        {
+            temp->kill(); //added to m_actors and will be deleted before end of tick by move()
+        }
+    }
 }
 
 DumbZombie::~DumbZombie(){}
@@ -686,11 +726,21 @@ bool Human::react()
 
 //do disease things if infected
 //increments ticksInfected, kills if over 500
-void Human::sufferFromDisease()
+bool Human::sufferFromDisease()
 {
     ticksInfected++;
     if (ticksInfected >= 500)
+    {
         kill();
+        return true;
+    }
+    return false;
+}
+
+//return time infected
+int Human::getInfectTime() const
+{
+    return ticksInfected;
 }
 
 void Human::setHealth(bool stat)
@@ -710,6 +760,7 @@ bool Human::isInfectable() const
     return true;
 }
 
+
 Human::~Human() {}
 
 //CITIZEN
@@ -719,13 +770,16 @@ void Citizen::doSomething()
     if (isAlive())
     {
         if (isInfected())
-            sufferFromDisease();
+        {
+            if (sufferFromDisease())
+                return;
+        }
         if (isAlive() && getTicks() % 2 != 0)
         {
             //if penelope distance closer than zombie distance, follow penelope
             //if zombie closer or cannot follow penelope, avoid zombie
             
-            int distance = getWorld()->setClosest(this);
+            double distance = getWorld()->setClosest(this);
             //interactor now penelope, closest now closest zombie
             
             if (getInteractor() != nullptr) //penelope is close enough
@@ -738,13 +792,59 @@ void Citizen::doSomething()
             }
             
             //penelope not close enough or followInteractor returned false bc blocked
-            setInteractor(getClosest());
-            if (distance <= 6400) //avoid zombie
+            if (distance <= 6400)
             {
-                
+                //avoid zombies
+                Direction dir = avoidZombie(distance);
+                if (dir != -1) //if better to move
+                    move(dir, 2);
             }
+            //else (penelope not close enough & no zombies close enough or no better alternative), do nothing
         }
     }
+}
+
+//parameter distance is distance if stay
+//returns best direction to move, or -1 to stay
+Direction Citizen::avoidZombie(double distance)
+{
+    //for each direction
+    //if movement not blocked
+    //calculate distance to nearest zombie
+    Direction bestDir = -1;
+    double biggestD = distance;
+    for (int i = 0; i < 360; i = i+90)
+    {
+        //create new Citizen at new hypothetical position and check
+        
+        if (!getWorld()->isBlocked(this, i)) //if not blocked in i direction
+        {
+            Citizen* temp = nullptr;
+            switch (i)
+            {
+                case right:
+                    temp = new Citizen(IID_CITIZEN, getX()+2, getY(), i, 0, 1, getWorld());
+                    break;
+                case left:
+                    temp = new Citizen(IID_CITIZEN, getX()-2, getY(), i, 0, 1, getWorld());
+                    break;
+                case up:
+                    temp = new Citizen(IID_CITIZEN, getX(), getY()+2, i, 0, 1, getWorld());
+                    break;
+                case down:
+                    temp = new Citizen(IID_CITIZEN, getX(), getY()-2, i, 0, 1, getWorld());
+                    break;
+            }
+            double tempD = getWorld()->setClosest(temp);
+            if (tempD > biggestD)
+            {
+                biggestD = tempD;
+                bestDir = i;
+            }
+            delete temp;
+        }
+    }
+    return bestDir;
 }
 
 //kills Citizen, different depending on whether it exits, dies from infection, or dies from pit/flame
@@ -767,7 +867,6 @@ void Citizen::kill()
         //decrease points
         getWorld()->increaseScore(-1000);
         
-        //!!!!!!!!!!!!!!!!!ZOMBIE IS BORN AND ADDED TO M_ACTORS BEFORE END OF TICK!!!!!!!!!!!!!!!!!!!!
         if (isInfected() && getTicks() >= 500) //died from infection
         {
             //play zombie born sound
@@ -783,7 +882,6 @@ void Citizen::kill()
             //play citizen dead sound
             getWorld()->playSound(SOUND_CITIZEN_DIE);
         }
-
     }
 }
 
@@ -793,39 +891,38 @@ Citizen::~Citizen() {}
 //PENELOPE
 void Penelope::doSomething()
 {
-    addTicks();
     if (isAlive())
     {
         if (isInfected())
-            sufferFromDisease();
-        if (isAlive())
         {
-            switch (key)
-            {
-                case KEY_PRESS_LEFT:
-                    move(left, 4);
-                    break;
-                case KEY_PRESS_RIGHT:
-                    move(right, 4);
-                    break;
-                case KEY_PRESS_UP:
-                    move(up, 4);
-                    break;
-                case KEY_PRESS_DOWN:
-                    move(down, 4);
-                    break;
-                case KEY_PRESS_SPACE:
-                    fireFlameThrower();
-                    break;
-                case KEY_PRESS_TAB:
-                    dropLandmine();
-                    break;
-                case KEY_PRESS_ENTER:
-                    heal();
-                    break;
-                default:
-                    break;
-            }
+            if (sufferFromDisease())
+                return;
+        }
+        switch (key)
+        {
+            case KEY_PRESS_LEFT:
+                move(left, 4);
+                break;
+            case KEY_PRESS_RIGHT:
+                move(right, 4);
+                break;
+            case KEY_PRESS_UP:
+                move(up, 4);
+                break;
+            case KEY_PRESS_DOWN:
+                move(down, 4);
+                break;
+            case KEY_PRESS_SPACE:
+                fireFlameThrower();
+                break;
+            case KEY_PRESS_TAB:
+                dropLandmine();
+                break;
+            case KEY_PRESS_ENTER:
+                heal();
+                break;
+            default:
+                break;
         }
     }
 }
